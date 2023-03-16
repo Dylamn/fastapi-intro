@@ -2,7 +2,7 @@ from fastapi import FastAPI, Body, Query, Path
 from pydantic import Required
 
 from .enums import ModelName
-from .schemas import Item, ItemOptions
+from .schemas import Item, ItemOptions, Offer, Image
 
 app = FastAPI()
 
@@ -163,5 +163,25 @@ async def update_item(
             **{k: v for k, v in options.dict().items() if k != 'hidden'}
         }
     }
+
+
+@app.post("/offers/")
+async def create_offer(offer: Offer):
+    return offer
+
+
+@app.post("/images/")
+async def create_image(images: list[Image]):
+    for image in images:
+        print(image.url)
+
+    return images
+
+
+@app.post("/index-weights/")
+async def create_index_weights(weights: dict[int, float]):
+    # Have in mind that JSON only supports str as keys.
+    # Pydantic does the automatic data conversion.
+    return weights
 
 # endregion

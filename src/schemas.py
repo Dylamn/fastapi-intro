@@ -1,4 +1,20 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
+
+
+class Image(BaseModel):
+    name: str
+    url: HttpUrl
+
+
+class ItemOptions(BaseModel):
+    promotion: int = Field(
+        default=0,
+        title="A promotion to apply to the price.",
+        description="The promotion value will be substracted to the base price."
+                    "e.g. for a price of 1000 -> 1000 - 100 = 900 which is 9€."
+    )
+    hidden: bool = False
+    shipping_available: bool = True
 
 
 class Item(BaseModel):
@@ -16,14 +32,12 @@ class Item(BaseModel):
         le=99999999
     )
     tax: float | None = None
+    tags: set[str] = set()
+    images: list[Image] | None = None
 
 
-class ItemOptions(BaseModel):
-    promotion: int = Field(
-        default=0,
-        title="A promotion to apply to the price.",
-        description="The promotion value will be substracted to the base price."
-                    "e.g. for a price of 1000 -> 1000 - 100 = 900 which is 9€."
-    )
-    hidden: bool = False
-    shipping_available: bool = True
+class Offer(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    items: list[Item]
