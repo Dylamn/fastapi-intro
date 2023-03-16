@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Query, Path
+from fastapi import FastAPI, Body, Query, Path, Cookie, Header
 from pydantic import Required
 
 from .enums import ModelName
@@ -32,8 +32,8 @@ async def read_card(card_id: int, short: bool = False, q: str | None = None):
 # Order matters for route definition.
 
 @app.get("/users/me")
-async def read_user_me():
-    return {"user_id": "the current user"}
+async def read_user_me(jwt_token: str = Cookie()):
+    return {"user_id": f"the current user: {jwt_token}"}
 
 
 @app.get("/users/{username}/hi")
@@ -125,33 +125,33 @@ async def search_items(
 @app.post("/items/")
 async def create_item(item: Item = Body(
     examples={
-            "normal": {
-                "summary": "A normal example",
-                "description": "A **normal** item works correctly.",
-                "value": {
-                    "name": "Foo",
-                    "description": "A very nice Item",
-                    "price": 35.4,
-                    "tax": 3.2,
-                },
-            },
-            "converted": {
-                "summary": "An example with converted data",
-                "description": "FastAPI can convert price `strings` to actual "
-                               "`numbers` automatically",
-                "value": {
-                    "name": "Bar",
-                    "price": "35.4",
-                },
-            },
-            "invalid": {
-                "summary": "Invalid data is rejected with an error",
-                "value": {
-                    "name": "Baz",
-                    "price": "thirty five point four",
-                },
+        "normal": {
+            "summary": "A normal example",
+            "description": "A **normal** item works correctly.",
+            "value": {
+                "name": "Foo",
+                "description": "A very nice Item",
+                "price": 35.4,
+                "tax": 3.2,
             },
         },
+        "converted": {
+            "summary": "An example with converted data",
+            "description": "FastAPI can convert price `strings` to actual "
+                           "`numbers` automatically",
+            "value": {
+                "name": "Bar",
+                "price": "35.4",
+            },
+        },
+        "invalid": {
+            "summary": "Invalid data is rejected with an error",
+            "value": {
+                "name": "Baz",
+                "price": "thirty five point four",
+            },
+        },
+    },
 )):
     item_dict = {**item.dict(), **{"importance": "importance"}}
 
@@ -217,4 +217,18 @@ async def create_index_weights(weights: dict[int, float]):
     # Pydantic does the automatic data conversion.
     return weights
 
+
 # endregion
+
+
+@app.get("/headers/echo/")
+async def echo_user_agent(
+        user_agent: str | None = Header(default=None),
+        strange_header: str | None = Header(default=None, convert_underscores=False),
+        x_token: list[str] | None = Header(default=None)
+):
+    return {
+        "User-Agent": user_agent,
+        "strange_header": strange_header,
+        "X-Token values": x_token
+    }
