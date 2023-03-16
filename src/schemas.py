@@ -1,3 +1,6 @@
+from datetime import datetime, time
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -11,7 +14,8 @@ class ItemOptions(BaseModel):
         default=0,
         title="A promotion to apply to the price.",
         description="The promotion value will be substracted to the base price."
-                    "e.g. for a price of 1000 -> 1000 - 100 = 900 which is 9€."
+                    "e.g. for a price of 1000 -> 1000 - 100 = 900 which is 9€.",
+        example="200"
     )
     hidden: bool = False
     shipping_available: bool = True
@@ -35,9 +39,34 @@ class Item(BaseModel):
     tags: set[str] = set()
     images: list[Image] | None = None
 
+    class Config:
+        schema_extra = {
+            "example": {
+                "name": "keyboard",
+                "description": "A very nice keyboard.",
+                "price": 7900,
+                "tax": 0.2,
+                "tags": ["Cherry MX Red", "RGB", "Mechanical"],
+                "images": [
+                    {
+                        "name": "Front view",
+                        "url": "https://via.placeholder.com/640x360"
+                    },
+                    {
+                        "name": "Switch",
+                        "url": "https://via.placeholder.com/640x360"
+                    }
+                ]
+            }
+        }
+
 
 class Offer(BaseModel):
-    name: str
-    description: str | None = None
-    price: float
+    id: UUID = Field(example=uuid4())
+    name: str = Field(example="Keyboard, mouse pack")
+    description: str | None = Field(default=None, example="This pack includes...")
+    price: float = Field(example=35000)
     items: list[Item]
+    start_datetime: datetime | None = None
+    end_datetime: datetime | None = None
+    repeat_at: time | None = None
