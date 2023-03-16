@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Body, Query, Path
+from pydantic import Required
 
 from .enums import ModelName
-from .schemas import Item
+from .schemas import Item, ItemOptions
 
 app = FastAPI()
 
@@ -13,7 +14,7 @@ async def root():
     return {"message": "Hello, world!"}
 
 
-# region Path parameters
+# region Path Parameters
 
 @app.get("/cards/{card_id}")
 async def read_card(card_id: int, short: bool = False, q: str | None = None):
@@ -53,6 +54,21 @@ async def get_model(model_name: ModelName):
 
 # endregion
 
+# region Path Params and Numeric Validations
+@app.get("/keyboards/{keyboard_id}/")
+async def read_keyboard(
+        q: str | None = Query(default=None, alias="keyboard-query"),
+        keyboard_id: int = Path(title="The ID of the keyboard to get", ge=1, le=999)
+):
+    results = {"keyboard_id": keyboard_id}
+    if q:
+        results.update({"q": q})
+
+    return results
+
+
+# endregion
+
 # region Query Parameters
 @app.get("/items/")
 async def read_item(skip: int = 0, limit: int = 10):
@@ -66,24 +82,86 @@ async def read_user_item(user_id: int, item_id: str, needy: str):
 
     return item
 
-# endregion
 
+# To declare a query parameter with a type of `list`, we need to explicitly use
+# `Query`, otherwise it would be interpreted as a request body.
+@app.get("/echo/items/")
+async def echo_items(
+        q: list[str] | None = Query(default=[], alias="list-query"),
+        hidden_query: str | None = Query(default=None, include_in_schema=False)
+):
+    if hidden_query:
+        return {"hidden_query": hidden_query}
+
+    query_items = {"q": q}
+
+    return query_items
+
+
+@app.get("/search")
+async def search_items(
+        q: str | None = Query(
+            default=None,
+            title="Query string",
+            description="Query string for the items to search in the db.",
+            min_length=3,
+            max_length=50,
+        )
+):
+    results = []
+    if not q:
+        results = fake_items_db
+    else:
+        for item in fake_items_db:
+            if q.lower() == item["item_name"].lower():
+                results.append(item)
+
+    return {"results": results}
+
+
+# endregion
 
 # region Request Body
 @app.post("/items/")
-async def create_item(item: Item):
-    item_dict = item.dict()
+async def create_item(item: Item, importance: int = Body()):
+    item_dict = {**item.dict(), **{"importance": importance}}
 
     if item.tax:
         price_with_tax = item.price + item.tax
         item_dict.update({"price_with_tax": price_with_tax})
 
-    return item
+    return item_dict
 
 
 @app.put("/items/{item_id}")
-async def update_item(item_id: int, item: Item):
-    return {"item_id": item_id, **item.dict()}
+async def update_item(
+        item_id: int,
+        item: Item,
+        options: ItemOptions = Body(default=None, embed=True),
+        q: str = Query(
+            default=Required,
+            min_length=3,
+            max_length=50,
+            regex="^[a-zA-Z0-9 ]+"),
+        optional_query: str | None = Query(
+            default=None,
+            max_length=3,
+            deprecated=True
+        )
+):
+    if options.hidden:
+        return {
+            "query": q,
+            "opt_query": optional_query
+        }
 
+    return {
+        "query": q,
+        "opt_query": optional_query,
+        "item": {
+            **{"item_id": item_id, **item.dict()},
+            **{k: v for k, v in options.dict().items() if k != 'hidden'}
+        }
+    }
 
 # endregion
