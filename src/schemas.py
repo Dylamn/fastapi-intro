@@ -1,7 +1,7 @@
 from datetime import datetime, time
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, EmailStr
 
 
 class Image(BaseModel):
@@ -61,6 +61,34 @@ class Item(BaseModel):
         }
 
 
+class ItemPartialUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    price: int | None = Field(
+        default=None,
+        title="The price of the item.",
+        gt=100,
+        le=99999999
+    )
+    tax: float | None = None
+    tags: set[str] | None = None
+    images: list[Image] | None = None
+
+
+class BaseVehicle(BaseModel):
+    description: str
+    type: str
+
+
+class CarVehicle(BaseVehicle):
+    type = "car"
+
+
+class PlaneVehicle(BaseVehicle):
+    type = "plane"
+    size: int
+
+
 class Offer(BaseModel):
     id: UUID = Field(example=uuid4())
     name: str = Field(example="Keyboard, mouse pack")
@@ -70,3 +98,21 @@ class Offer(BaseModel):
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
     repeat_at: time | None = None
+
+
+class BaseUser(BaseModel):
+    username: str
+    email: EmailStr
+    full_name: str | None = None
+
+
+class UserIn(BaseUser):
+    raw_password: str
+
+
+class UserOut(BaseUser):
+    ...
+
+
+class UserInDB(BaseUser):
+    hashed_password: str

@@ -1,22 +1,98 @@
-from fastapi import FastAPI, Body, Query, Path, Cookie, Header
+from enum import Enum
+from typing import Any
+
+from fastapi import (
+    FastAPI, Body, Form, Query, Path, Cookie, Header, status, File, UploadFile,
+    HTTPException, Request
+)
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import Required
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .enums import ModelName
-from .schemas import Item, ItemOptions, Offer, Image
+from .exceptions import UnicornException
+from .functions import fake_save_user
+from .schemas import (
+    Item, ItemOptions, Offer, Image, UserIn, UserOut, CarVehicle, PlaneVehicle
+)
 
 app = FastAPI()
 
+
+class Tags(Enum):
+    items = "items"
+    users = "users"
+
+
 fake_items_db = [{"item_name": "Foo"}, {"item_name": "Bar"}, {"item_name": "Spam"}]
 
+items = {
+    "foo": {
+        "name": "Foo", "price": 50200
+    },
+    "bar": {
+        "name": "Bar", "description": "The bartenders", "price": 6200, "tax": 20.2
+    },
+    "baz": {
+        "name": "Baz", "description": None, "price": 5020, "tax": 10.5, "tags": []
+    },
+}
 
-@app.get("/")
-async def root():
+vehicles = {
+    "vehicle1": {"description": "All my friends drive a low rider", "type": "car"},
+    "vehicle2": {
+        "description": "Music is my aeroplane, it's my aeroplane",
+        "type": "plane",
+        "size": 5,
+    },
+}
+
+
+# region Exception Handlers
+@app.exception_handler(UnicornException)
+async def unicorn_exception_handler(request: Request, exc: UnicornException):
+    return JSONResponse(
+        status_code=418,
+        content={
+            "message": f"Oops! {exc.name} did something. There goes a rainbow..."
+        }
+    )
+
+
+# Overrides the default exception handler for validation exceptions
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=jsonable_encoder({"detail": exc.errors(), "body": exc.body})
+    )
+
+
+# When we register an HTTPException handler, we shoul register it for Starlette's
+# HTTPException.
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request, exc):
+    print(f"An HTTP error: {repr(exc)}")
+
+    # Re-use FastAPI's exception handler
+    return await http_exception_handler(request, exc)
+
+
+# endregion
+
+@app.get("/", summary="Says hello world!")
+async def root() -> dict[str, str]:
     return {"message": "Hello, world!"}
 
 
 # region Path Parameters
 
-@app.get("/cards/{card_id}")
+@app.get("/cards/{card_id}", tags=["cards"])
 async def read_card(card_id: int, short: bool = False, q: str | None = None):
     card = {"card_id": card_id}
     if q:
@@ -31,17 +107,17 @@ async def read_card(card_id: int, short: bool = False, q: str | None = None):
 
 # Order matters for route definition.
 
-@app.get("/users/me")
+@app.get("/users/me", tags=[Tags.users])
 async def read_user_me(jwt_token: str = Cookie()):
     return {"user_id": f"the current user: {jwt_token}"}
 
 
-@app.get("/users/{username}/hi")
+@app.get("/users/{username}/hi", tags=[Tags.users])
 async def say_hi_to_user(username: str):
     return {"msg": f"hi {username}"}
 
 
-@app.get("/models/{model_name}")
+@app.get("/models/{model_name}", tags=["models"])
 async def get_model(model_name: ModelName):
     if model_name is ModelName.alexnet:
         return {"model_name": model_name, "message": "Deep Learning FTW!"}
@@ -55,7 +131,7 @@ async def get_model(model_name: ModelName):
 # endregion
 
 # region Path Params and Numeric Validations
-@app.get("/keyboards/{keyboard_id}/")
+@app.get("/keyboards/{keyboard_id}/", tags=["keyboard"])
 async def read_keyboard(
         q: str | None = Query(default=None, alias="keyboard-query"),
         keyboard_id: int = Path(title="The ID of the keyboard to get", ge=1, le=999)
@@ -76,7 +152,7 @@ async def read_item(skip: int = 0, limit: int = 10):
 
 
 # Required query parameter (`needy`)
-@app.get("/users/{user_id}/items/{item_id}")
+@app.get("/users/{user_id}/items/{item_id}", tags=[Tags.users])
 async def read_user_item(user_id: int, item_id: str, needy: str):
     item = {"user_id": user_id, "item_id": item_id, "needy": needy}
 
@@ -98,7 +174,7 @@ async def echo_items(
     return query_items
 
 
-@app.get("/search")
+@app.get("/search", tags=[Tags.items])
 async def search_items(
         q: str | None = Query(
             default=None,
@@ -122,7 +198,12 @@ async def search_items(
 # endregion
 
 # region Request Body
-@app.post("/items/")
+@app.post(
+    "/items/",
+    summary="Create an item",
+    response_description="The created item",
+    tags=[Tags.items]
+)
 async def create_item(item: Item = Body(
     examples={
         "normal": {
@@ -153,6 +234,15 @@ async def create_item(item: Item = Body(
         },
     },
 )):
+    """
+    Create an item with all the information:
+
+    - **name**: each item must have a name
+    - **description**: a long description
+    - **price**: required
+    - **tax**: if the item doesn't have tax, you can omit this
+    - **tags**: a set of unique tag strings for this item
+    """
     item_dict = {**item.dict(), **{"importance": "importance"}}
 
     if item.tax:
@@ -162,7 +252,7 @@ async def create_item(item: Item = Body(
     return item_dict
 
 
-@app.put("/items/{item_id}")
+@app.put("/items/{item_id}", tags=[Tags.items])
 async def update_item(
         item_id: int,
         item: Item,
@@ -194,8 +284,19 @@ async def update_item(
     }
 
 
-@app.post("/offers/")
-async def create_offer(offer: Offer):
+@app.patch("/items/{item_id}", response_model=Item, tags=["items"])
+async def update_item(item_id: str, item: Item):
+    stored_item_data = items[item_id]
+    stored_item_model = Item(**stored_item_data)
+    update_data = item.dict(exclude_unset=True)
+    updated_item = stored_item_model.copy(update=update_data)
+    items[item_id] = jsonable_encoder(updated_item)
+
+    return updated_item
+
+
+@app.post("/offers/", response_model=Offer, tags=["offers"])
+async def create_offer(offer: Offer) -> dict[str, Any]:
     duration = offer.end_datetime - offer.start_datetime
     offer_dict = offer.dict()
     offer_dict.update({"duration": duration})
@@ -203,8 +304,8 @@ async def create_offer(offer: Offer):
     return offer_dict
 
 
-@app.post("/images/")
-async def create_image(images: list[Image]):
+@app.post("/images/", tags=["images"])
+async def create_image(images: list[Image]) -> list[Image]:
     for image in images:
         print(image.url)
 
@@ -221,7 +322,7 @@ async def create_index_weights(weights: dict[int, float]):
 # endregion
 
 
-@app.get("/headers/echo/")
+@app.get("/headers/echo/", deprecated=True)
 async def echo_user_agent(
         user_agent: str | None = Header(default=None),
         strange_header: str | None = Header(default=None, convert_underscores=False),
@@ -232,3 +333,75 @@ async def echo_user_agent(
         "strange_header": strange_header,
         "X-Token values": x_token
     }
+
+
+@app.post("/user/", status_code=status.HTTP_201_CREATED, tags=[Tags.users])
+async def create_user(user: UserIn) -> UserOut:
+    user_saved = fake_save_user(user)
+    return user_saved
+
+
+@app.get(
+    "/vehicles/{vehicle_id}",
+    response_model=PlaneVehicle | CarVehicle,
+    tags=["vehicles"]
+)
+async def read_vehicle(vehicle_id: str):
+    vehicle = vehicles.get(f"vehicle{vehicle_id}")
+
+    if vehicle is None:
+        raise HTTPException(status_code=404, detail="Vehicle not found.")
+
+    return vehicle
+
+
+@app.post("/login", tags=[Tags.users])
+async def login(username: str = Form(), password: str = Form()):
+    if password == "password123":
+        return {"token": "user_token", "username": username}
+
+    raise HTTPException(
+        status_code=400,
+        detail="Incorrect username and/or password.",
+        headers={"X-Error": "There goes my error"}
+    )
+
+
+@app.post("/files/", tags=["files"])
+async def create_file(
+        token: str = Form(),
+        files: list[bytes] = File(
+            default=None,
+            description="A list of files read as bytes."
+        )
+):
+    if not files:
+        return {"message": "No file sent"}
+
+    return {"token": token, "file_sizes": [len(file) for file in files]}
+
+
+@app.post("/uploadfile/", tags=["files"])
+async def create_upload_file(
+        file: UploadFile = File(description="A file read as UploadFile.")
+):
+    if not file:
+        return {"message": "No upload file sent"}
+
+    return {"filename": file.filename}
+
+
+@app.get("/unicorns/{name}", tags=["unicorns"])
+async def read_unicorn(name: str):
+    if name == "yolo":
+        raise UnicornException(name=name)
+
+    return {"unicorn_name": name}
+
+
+@app.get("/tracks/{track_id}", tags=["tracks"])
+async def read_exceptions(track_id: int):
+    if track_id == 3:
+        raise HTTPException(status_code=418, detail="Nope! I don't like 3.")
+
+    return {"track_id": track_id}
